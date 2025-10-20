@@ -78,7 +78,7 @@ Update the file to match your environment. For cross-platform setups, consider m
 
    The application starts on `http://127.0.0.1:4891` by default. The console prints a banner once Flask is ready.
 
-If Tor support is enabled, the server will attempt to start Tor in a background thread during initialisation.
+If Tor support is enabled, the server will attempt to start Tor in a background thread during initialisation. *** Use a VPN ***
 
 ### Using the chat client
 
@@ -112,3 +112,4 @@ The response envelope contains a single `response` field with the assistant's re
 - Extend `Chat_Unreal_Server.py` to add authentication, alternative search providers, or richer context injection.
 
 Contributions, issues, and suggestions are welcome. Happy hacking!
+
