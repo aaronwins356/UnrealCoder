@@ -2,10 +2,12 @@
 import json
 import os
 import re
+import shutil
+import socket
 import subprocess
 import threading
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -98,23 +100,86 @@ def save_memory(mem: Dict) -> None:
         json.dump(mem, f, indent=2)
 
 
+TOR_HOST = "127.0.0.1"
+TOR_SOCKS_PORT = 9050
+
+
 def _tor_proxies() -> Dict[str, str]:
     return {
-        "http": "socks5h://127.0.0.1:9050",
-        "https": "socks5h://127.0.0.1:9050",
+        "http": f"socks5h://{TOR_HOST}:{TOR_SOCKS_PORT}",
+        "https": f"socks5h://{TOR_HOST}:{TOR_SOCKS_PORT}",
     }
 
 
-def tor_request(url: str, timeout: int = 20) -> str:
+def _tor_candidates() -> List[str]:
+    candidates: List[str] = []
+
+    configured = CFG.get("tor_path") if "CFG" in globals() else None
+    env_override = os.environ.get("TOR_PATH")
+
+    for path in [configured, env_override]:
+        if path and path not in candidates:
+            candidates.append(path)
+
+    default_paths = [
+        "tor",
+        "/usr/bin/tor",
+        "/usr/local/bin/tor",
+    ]
+
+    program_files = os.environ.get("PROGRAMFILES")
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    windows_suffix = os.path.join(
+        "Tor Browser",
+        "Browser",
+        "TorBrowser",
+        "Tor",
+        "tor.exe",
+    )
+    for base in [program_files, local_app_data]:
+        if base:
+            default_paths.append(os.path.join(base, windows_suffix))
+
+    for candidate in default_paths:
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    return candidates
+
+
+def _resolve_tor_binary() -> Optional[str]:
+    for candidate in _tor_candidates():
+        if not candidate:
+            continue
+        if os.path.isabs(candidate) and os.path.exists(candidate):
+            return candidate
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return None
+
+
+def _is_tor_ready(host: str = TOR_HOST, port: int = TOR_SOCKS_PORT) -> bool:
     try:
-        r = requests.get(url, proxies=_tor_proxies(), timeout=timeout)
-        r.raise_for_status()
-        return r.text
-    except Exception as exc:
-        log(f"Tor request failed ({exc}); attempting clearnet access.")
-        r = requests.get(url, timeout=max(10, timeout - 5))
-        r.raise_for_status()
-        return r.text
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def tor_request(url: str, timeout: int = 20) -> str:
+    if not CFG.get("use_tor"):
+        return clear_request(url, timeout=timeout)
+
+    if not _is_tor_ready():
+        ensure_tor_ready()
+
+    if not _is_tor_ready():
+        raise RuntimeError("Tor is not available on the configured SOCKS port.")
+
+    r = requests.get(url, proxies=_tor_proxies(), timeout=timeout)
+    r.raise_for_status()
+    return r.text
 
 
 def clear_request(url: str, timeout: int = 15) -> str:
@@ -125,7 +190,11 @@ def clear_request(url: str, timeout: int = 15) -> str:
 
 def search_web(query: str) -> List[Dict[str, str]]:
     q = query.replace(" ", "+")
-    html = tor_request(f"https://duckduckgo.com/html/?q={q}")
+    try:
+        html = tor_request(f"https://duckduckgo.com/html/?q={q}")
+    except Exception as exc:
+        log(f"Web search via Tor failed: {exc}")
+        return []
     soup = BeautifulSoup(html, "html.parser")
     results: List[Dict[str, str]] = []
     for a in soup.select("a.result__a")[:5]:
@@ -138,7 +207,10 @@ def search_web(query: str) -> List[Dict[str, str]]:
 
 def fetch_article(url: str) -> str:
     try:
-        text = tor_request(url) if ".onion" in url else clear_request(url)
+        if CFG.get("use_tor"):
+            text = tor_request(url)
+        else:
+            text = clear_request(url)
     except Exception as exc:
         log(f"Failed to fetch article {url}: {exc}")
         return ""
@@ -180,21 +252,40 @@ def launch_tor() -> None:
     if not CFG.get("use_tor"):
         return
 
-    tor_path = CFG.get("tor_path")
-    if not tor_path or not os.path.exists(tor_path):
-        log("Tor path invalid or not configured.")
+    if _is_tor_ready():
+        log("Tor already running on the configured SOCKS port.")
         return
 
-    def _run_tor():
-        log("Starting Tor...")
-        subprocess.run([tor_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    tor_binary = _resolve_tor_binary()
+    if not tor_binary:
+        log("Tor binary could not be located. Set 'tor_path' in config.json or TOR_PATH env var.")
+        return
+
+    def _run_tor() -> None:
+        log(f"Starting Tor using {tor_binary}...")
+        try:
+            subprocess.Popen(
+                [tor_binary],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            log(f"Failed to launch Tor: {exc}")
 
     threading.Thread(target=_run_tor, daemon=True).start()
 
 
-def ensure_tor_ready() -> None:
-    if CFG.get("use_tor"):
-        time.sleep(5)
+def ensure_tor_ready(timeout: int = 45) -> None:
+    if not CFG.get("use_tor"):
+        return
+
+    start = time.time()
+    while time.time() - start < timeout:
+        if _is_tor_ready():
+            return
+        time.sleep(1)
+
+    log("Tor did not become ready before timeout expired.")
 
 
 def needs_research(message: str) -> bool:

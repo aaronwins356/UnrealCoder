@@ -7,7 +7,7 @@ Unreal_Ai is a lightweight research assistant that blends a browser-based chat e
 - **Full-stack chat experience** – `Chat_Unreal.html` plus bundled CSS/JavaScript deliver a polished chat UI that talks directly to the Flask API.
 - **Local model integration** – Proxies every user exchange to an Ollama-compatible chat endpoint configured in `config.json`.
 - **Persistent memory** – Stores the last several user/assistant turns in `chat_memory.json` so the assistant can respond with continuity.
-- **Optional Tor support** – When enabled, outbound web searches are routed through Tor for an additional layer of privacy.
+- **Optional Tor support** – When enabled, *all* outbound research traffic (including standard web pages) is routed through Tor for an additional layer of privacy.
 - **Web research assist** – Detects natural-language requests to "search", "find", or "lookup" and adds contextual snippets from DuckDuckGo.
 - **Structured logging** – Logs every interaction to `chat_unreal.log` for later analysis or auditing.
 
@@ -30,7 +30,7 @@ Unreal_Ai is a lightweight research assistant that blends a browser-based chat e
 
 - Python 3.9 or newer
 - [Ollama](https://ollama.com/) running locally with the model specified in `config.json`
-- (Optional) A Tor binary if you plan to enable Tor routing for search queries
+- (Optional) A Tor binary if you plan to enable Tor routing for research queries. When enabled, the server ensures the Tor SOCKS proxy is reachable before performing lookups.
 
 You can use the provided `venv` directory or create your own virtual environment.
 
@@ -61,8 +61,8 @@ All runtime options live in `config.json`:
 | --- | --- |
 | `model` | The Ollama model name that the server will pass to `http://localhost:11434/api/chat` (for example, `llama3` or `chatunreal`). |
 | `cache_lifetime_hours` | Reserved for future caching behaviour (currently unused but retained for compatibility). |
-| `use_tor` | Boolean flag; when `true`, web searches are proxied through Tor. |
-| `tor_path` | Absolute path to the Tor executable. Required only if `use_tor` is enabled. |
+| `use_tor` | Boolean flag; when `true`, the server ensures the Tor SOCKS proxy is reachable and proxies research requests through it. |
+| `tor_path` | Absolute path to the Tor executable. Required only if `use_tor` is enabled or if the binary is not discoverable on the system PATH. |
 
 Update the file to match your environment. For cross-platform setups, consider maintaining separate configuration files (for example `config.windows.json`, `config.linux.json`) and copying the appropriate one before launching the server.
 
@@ -78,7 +78,7 @@ Update the file to match your environment. For cross-platform setups, consider m
 
    The application starts on `http://127.0.0.1:4891` by default. The console prints a banner once Flask is ready.
 
-If Tor support is enabled, the server will attempt to start Tor in a background thread during initialisation. *** Use a VPN ***
+If Tor support is enabled, the server will attempt to start Tor in a background thread during initialisation and wait for the SOCKS proxy to accept connections before continuing. *** Use a VPN ***
 
 ### Using the chat client
 
