@@ -1,0 +1,14 @@
+﻿[2025-10-19 21:20:28] Starting Tor...
+[2025-10-19 21:21:17] User: Hello
+AI: Error: Extra data: line 2 column 1 (char 131)
+
+[2025-10-19 21:24:27] User: Hello
+AI: Error: Extra data: line 2 column 1 (char 131)
+
+[2025-10-19 21:25:54] Starting Tor...
+[2025-10-19 21:28:50] User: How do I make a grill cheese
+AI: Error: Extra data: line 2 column 1 (char 125)
+
+[2025-10-19 21:37:37] User: How do I make a grill cheese
+AI: Error: Extra data: line 2 column 1 (char 125)
+

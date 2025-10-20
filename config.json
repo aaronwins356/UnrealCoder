@@ -1,0 +1,7 @@
+﻿{
+  "model": "chatunreal",
+  "cache_lifetime_hours": 24,
+  "use_tor": true,
+  "tor_path": "C:\\ProgramData\\chocolatey\\lib\\tor-browser\\tools\\tor-browser\\Browser\\TorBrowser\\Tor\\tor.exe"
+}
+
