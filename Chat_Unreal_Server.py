@@ -91,12 +91,14 @@ def chat():
         "model": CFG["model"],
         "messages": [{"role": "system", "content": "You are Chat Unreal, a factual, step-by-step instructional AI."}]
                     + mem["history"][-8:]
-                    + [{"role": "user", "content": context + user_msg}]
+                    + [{"role": "user", "content": context + user_msg}],
+        "stream": False,
     }
 
     try:
         r = requests.post("http://localhost:11434/api/chat", json=payload, timeout=60)
-        reply = r.json().get("message", {}).get("content", "No response.")
+        response_json = r.json()
+        reply = response_json.get("message", {}).get("content", "No response.")
     except Exception as e:
         reply = f"Error: {e}"
 
