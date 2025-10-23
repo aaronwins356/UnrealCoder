@@ -7,7 +7,7 @@ import socket
 import subprocess
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -20,11 +20,18 @@ MEMORY_PATH = os.path.join(BASE_DIR, "chat_memory.json")
 LOG_PATH = os.path.join(BASE_DIR, "chat_unreal.log")
 
 DEFAULT_CFG = {
-    "model": "chatunreal",
+    "model": "darkc0de/XortronCriminalComputingConfig",
+    "hf_api_url": "https://api-inference.huggingface.co/models/darkc0de/XortronCriminalComputingConfig",
+    "hf_timeout": 120,
     "cache_lifetime_hours": 24,
     "use_tor": True,
     "tor_path": "C:/Program Files/Tor Browser/Browser/TorBrowser/Tor/tor.exe",
 }
+
+MAX_HISTORY_ENTRIES = 50
+MAX_USER_MESSAGE_LENGTH = 4000
+CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+PROMPT_HISTORY_LIMIT = 12
 
 
 def log(msg: str) -> None:
@@ -61,6 +68,28 @@ def _safe_json_loads(raw: str) -> Dict:
             raise
 
 
+def _sanitize_text(value: str, limit: Optional[int] = None) -> str:
+    if not isinstance(value, str):
+        value = ""
+    value = CONTROL_CHAR_PATTERN.sub("", value.strip())
+    if limit and limit > 0:
+        value = value[:limit]
+    return value
+
+
+def _truncate_history(history: Iterable[Dict[str, str]], limit: int) -> List[Dict[str, str]]:
+    cleaned: List[Dict[str, str]] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        role = _sanitize_text(item.get("role", ""), limit=32)
+        content = _sanitize_text(item.get("content", ""), limit=MAX_USER_MESSAGE_LENGTH)
+        if not role or not content:
+            continue
+        cleaned.append({"role": role, "content": content})
+    return cleaned[-limit:]
+
+
 def load_config() -> Dict:
     if not os.path.exists(CONFIG_PATH):
         log("Config missing – using defaults.")
@@ -92,7 +121,10 @@ def ensure_memory_exists() -> None:
 
 def load_memory() -> Dict:
     with open(MEMORY_PATH, "r", encoding="utf-8-sig") as f:
-        return _safe_json_loads(f.read()) or {"history": []}
+        raw_mem = _safe_json_loads(f.read()) or {}
+    history = raw_mem.get("history", []) if isinstance(raw_mem, dict) else []
+    raw_mem["history"] = _truncate_history(history, MAX_HISTORY_ENTRIES)
+    return raw_mem
 
 
 def save_memory(mem: Dict) -> None:
@@ -304,41 +336,122 @@ def needs_research(message: str) -> bool:
     return any(keyword in normalized_msg for keyword in research_keywords)
 
 
-def build_model_payload(history: List[Dict[str, str]], user_msg: str, context: str) -> Dict:
-    system_prompt = {
-        "role": "system",
-        "content": "You are Chat Unreal, a factual, step-by-step instructional AI.",
-    }
-    messages = [system_prompt] + history[-8:] + [
-        {"role": "user", "content": f"{context}\n\n{user_msg}".strip()}
-    ]
-    return {
-        "model": CFG["model"],
-        "messages": messages,
-        "stream": False,
-    }
-
-
-def query_local_model(payload: Dict) -> str:
-    try:
-        r = requests.post(
-            "http://localhost:11434/api/chat",
-            json=payload,
-            timeout=120,
-            headers={"Accept": "application/json"},
+def _format_prompt(history: List[Dict[str, str]], user_msg: str, context: str) -> str:
+    trimmed_history = _truncate_history(history, PROMPT_HISTORY_LIMIT)
+    prompt_segments: List[str] = [
+        (
+            "System: You are Chat Unreal, a precise, security-conscious coding assistant. "
+            "You produce hardened, production-ready answers with detailed reasoning "
+            "and rely on the Hugging Face model darkc0de/XortronCriminalComputingConfig "
+            "for every coding task."
         )
-        r.raise_for_status()
-        response_json = _safe_json_loads(r.text)
-        return response_json.get("message", {}).get("content", "No response.")
+    ]
+    if context:
+        prompt_segments.append(f"Context: {context}")
+
+    for entry in trimmed_history:
+        role = entry.get("role", "").lower()
+        prefix = "Assistant" if role == "assistant" else "User"
+        prompt_segments.append(f"{prefix}: {entry.get('content', '')}")
+
+    prompt_segments.append(f"User: {user_msg}")
+    prompt_segments.append("Assistant:")
+    return "\n\n".join(segment for segment in prompt_segments if segment)
+
+
+def build_model_payload(history: List[Dict[str, str]], user_msg: str, context: str) -> Dict:
+    prompt = _format_prompt(history, user_msg, context)
+    return {
+        "inputs": prompt,
+        "parameters": {
+            "temperature": 0.2,
+            "max_new_tokens": 800,
+            "top_p": 0.9,
+            "return_full_text": False,
+        },
+        "options": {"wait_for_model": True},
+    }
+
+
+def _extract_hf_text(data) -> str:
+    if isinstance(data, dict):
+        for key in ("generated_text", "text", "content"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        if "choices" in data and isinstance(data["choices"], list):
+            texts = [_extract_hf_text(choice) for choice in data["choices"]]
+            return "\n".join(t for t in texts if t)
+        if "data" in data and isinstance(data["data"], list):
+            texts = [_extract_hf_text(item) for item in data["data"]]
+            return "\n".join(t for t in texts if t)
+        return ""
+    if isinstance(data, list):
+        texts = [_extract_hf_text(item) for item in data]
+        return "\n".join(t for t in texts if t)
+    if isinstance(data, str):
+        return data
+    return ""
+
+
+def query_model(payload: Dict) -> str:
+    api_url = (CFG.get("hf_api_url") or "").strip()
+    if not api_url:
+        model_name = (CFG.get("model") or "").strip()
+        if not model_name:
+            return "Error: Hugging Face model is not configured."
+        api_url = f"https://api-inference.huggingface.co/models/{model_name}"
+
+    timeout = CFG.get("hf_timeout", 120)
+    try:
+        timeout = max(30, int(timeout))
+    except (ValueError, TypeError):
+        timeout = 120
+
+    token = os.environ.get("HF_API_TOKEN") or CFG.get("hf_api_token")
+    headers = {"Accept": "application/json"}
+    if token:
+        token_str = str(token).strip()
+        if token_str:
+            headers["Authorization"] = f"Bearer {token_str}"
+
+    try:
+        response = requests.post(api_url, json=payload, headers=headers, timeout=timeout)
     except Exception as exc:
         log(f"Model request failed: {exc}")
-        return "Error: Unable to retrieve a response from the local model."
+        return "Error: Unable to contact the Hugging Face inference endpoint."
+
+    if response.status_code == 401:
+        log("Model request unauthorized – verify the HF_API_TOKEN environment variable.")
+        return "Error: Hugging Face authorization failed. Set a valid HF_API_TOKEN."
+    if response.status_code == 503:
+        return "The model is loading on Hugging Face. Please retry in a few seconds."
+
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        preview = response.text[:500]
+        log(f"Model HTTP error: {exc}; payload preview: {preview}")
+        return "Error: Model endpoint returned an unexpected response."
+
+    data = _safe_json_loads(response.text) if response.text else {}
+    text = _extract_hf_text(data).strip()
+    if not text:
+        log(f"Empty Hugging Face response: {data}")
+        return "Error: Received an empty response from the Hugging Face model."
+
+    return text
 
 
 def append_history(mem: Dict, role: str, content: str) -> None:
-    mem.setdefault("history", []).append({"role": role, "content": content})
-    if len(mem["history"]) > 50:
-        mem["history"] = mem["history"][-50:]
+    mem.setdefault("history", [])
+    mem["history"].append(
+        {
+            "role": _sanitize_text(role, limit=32),
+            "content": _sanitize_text(content, limit=MAX_USER_MESSAGE_LENGTH),
+        }
+    )
+    mem["history"] = _truncate_history(mem["history"], MAX_HISTORY_ENTRIES)
 
 
 CFG = load_config()
@@ -354,17 +467,21 @@ def serve_ui():
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    data = request.json or {}
-    user_msg = data.get("message", "").strip()
+    data = request.get_json(silent=True) or {}
+    user_msg = _sanitize_text(data.get("message", ""), limit=MAX_USER_MESSAGE_LENGTH)
     if not user_msg:
         return jsonify({"response": "No message provided."})
+
+    if len(user_msg) >= MAX_USER_MESSAGE_LENGTH:
+        return jsonify({"response": "Message too long. Please shorten your request."})
 
     mem = load_memory()
     append_history(mem, "user", user_msg)
 
     context = build_research_context(user_msg) if needs_research(user_msg) else ""
+    context = _sanitize_text(context, limit=2000)
     payload = build_model_payload(mem["history"], user_msg, context)
-    reply = query_local_model(payload)
+    reply = query_model(payload)
 
     append_history(mem, "assistant", reply)
     save_memory(mem)
