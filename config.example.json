@@ -1,9 +1,9 @@
-﻿{
+{
   "model": "darkc0de/XortronCriminalComputingConfig",
   "hf_api_url": "https://api-inference.huggingface.co/models/darkc0de/XortronCriminalComputingConfig",
   "hf_timeout": 120,
   "cache_lifetime_hours": 24,
   "use_tor": true,
-  "tor_path": "C:\\ProgramData\\chocolatey\\lib\\tor-browser\\tools\\tor-browser\\Browser\\TorBrowser\\Tor\\tor.exe"
+  "tor_path": "C:/ProgramData/chocolatey/lib/tor-browser/tools/tor-browser/Browser/TorBrowser/Tor/tor.exe",
+  "hf_api_token": ""
 }
-

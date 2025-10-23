@@ -15,6 +15,11 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency for local env loading
+    load_dotenv = None  # type: ignore[assignment]
+
 app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
@@ -466,6 +471,7 @@ def build_model_payload(history: List[Dict[str, str]], user_msg: str, context: s
 
 _TOKEN_WARNING_EMITTED = False
 _MISSING_TOKEN_LOGGED = False
+_TOKEN_SOURCE_LOGGED = False
 
 
 def _warn_windows_export() -> None:
@@ -478,19 +484,59 @@ def _warn_windows_export() -> None:
     log("HF_API_TOKEN missing. On PowerShell use: $env:HF_API_TOKEN = 'your_token_here'")
 
 
+def _initialize_environment() -> None:
+    """Load environment variables from .env files when python-dotenv is available."""
+
+    project_root = os.path.dirname(BASE_DIR)
+    candidate_paths = [
+        os.path.join(BASE_DIR, ".env"),
+        os.path.join(project_root, ".env"),
+    ]
+
+    if load_dotenv is None:
+        for path in candidate_paths:
+            if os.path.exists(path):
+                log(
+                    "python-dotenv is not installed; skipping environment loading from .env files."
+                )
+                break
+        return
+
+    loaded_any = False
+    for path in candidate_paths:
+        if os.path.exists(path):
+            try:
+                load_dotenv(path, override=False)
+                loaded_any = True
+            except Exception as exc:  # pragma: no cover - defensive logging only
+                log(f"Failed to load environment file {path}: {exc}")
+
+    if loaded_any:
+        log("Environment variables initialized from .env file(s).")
+
+
 def _load_hf_token() -> Optional[str]:
     """Return the Hugging Face token from environment or config, if available."""
 
+    global _TOKEN_SOURCE_LOGGED, _MISSING_TOKEN_LOGGED
+
     token_sources = [
-        os.environ.get("HF_API_TOKEN"),
-        os.environ.get("hf_api_token"),
-        os.environ.get("HF-HUB_TOKEN"),
-        CFG.get("hf_api_token"),
+        ("environment variable HF_API_TOKEN", os.environ.get("HF_API_TOKEN")),
+        ("environment variable hf_api_token", os.environ.get("hf_api_token")),
+        ("environment variable HF-HUB_TOKEN", os.environ.get("HF-HUB_TOKEN")),
+        ("config entry hf_api_token", CFG.get("hf_api_token")),
     ]
-    for token in token_sources:
+    for source_name, token in token_sources:
         if token and str(token).strip():
+            if not _TOKEN_SOURCE_LOGGED:
+                log(f"HF API token loaded from {source_name}.")
+                _TOKEN_SOURCE_LOGGED = True
+                _MISSING_TOKEN_LOGGED = False
             return str(token).strip()
     _warn_windows_export()
+    if not _MISSING_TOKEN_LOGGED:
+        log("HF API token not found in environment or config.")
+        _MISSING_TOKEN_LOGGED = True
     return None
 
 
@@ -702,6 +748,7 @@ def gather_health_status() -> Dict[str, Dict[str, str]]:
     }
 
 
+_initialize_environment()
 CFG = load_config()
 ensure_memory_exists()
 launch_tor()
