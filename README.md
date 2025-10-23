@@ -1,4 +1,4 @@
-# Chat Unreal
+# Unreal Coder
 
 ## Welcome
 Chat Unreal is a friendly research assistant that runs entirely on your computer. It pairs a modern web chat page with a Python server so you can talk to an AI model, keep a running memory of conversations, and (optionally) route web lookups through Tor for extra privacy. No cloud account is required once everything is installed.
