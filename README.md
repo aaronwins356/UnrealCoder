@@ -1,115 +1,141 @@
 # Chat Unreal
 
-Unreal_Ai is a lightweight research assistant that blends a browser-based chat experience with a Python back end. The Flask server orchestrates conversation memory, optional privacy-preserving web lookups through Tor, and streaming interactions with an Ollama model running locally. The front end provides a clean single-page chat client styled with modern gradients and responsive layout.
+## Welcome
+Chat Unreal is a friendly research assistant that runs entirely on your computer. It pairs a modern web chat page with a Python server so you can talk to an AI model, keep a running memory of conversations, and (optionally) route web lookups through Tor for extra privacy. No cloud account is required once everything is installed.
 
-## Features
+---
 
-- **Full-stack chat experience** – `Chat_Unreal.html` plus bundled CSS/JavaScript deliver a polished chat UI that talks directly to the Flask API.
-- **Local model integration** – Proxies every user exchange to an Ollama-compatible chat endpoint configured in `config.json`.
-- **Persistent memory** – Stores the last several user/assistant turns in `chat_memory.json` so the assistant can respond with continuity.
-- **Optional Tor support** – When enabled, *all* outbound research traffic (including standard web pages) is routed through Tor for an additional layer of privacy.
-- **Web research assist** – Detects natural-language requests to "search", "find", or "lookup" and adds contextual snippets from DuckDuckGo.
-- **Structured logging** – Logs every interaction to `chat_unreal.log` for later analysis or auditing.
+## Who this guide is for
+This README is written for people who may be new to coding. Every section uses plain language, explains unfamiliar terms, and walks through each action one step at a time. Experienced developers will still find the reference details and advanced options in the later sections.
 
-## Project layout
+---
 
-```
-.
-├── Chat_Unreal_Server.py   # Flask application with Tor-aware search and Ollama relay
-├── Chat_Unreal.html        # Single-page chat client served by Flask
-├── static/
-│   ├── style.css           # Visual design for the chat experience
-│   └── script.js           # Front-end chat logic and API integration
-├── config.json             # Runtime configuration for Tor and model selection
-├── chat_memory.json        # Persistent conversation history
-├── chat_unreal.log         # Rolling server log of conversations
-└── run.ps1                 # Convenience launcher for Windows environments
-```
+## What you will need
+Before you begin, make sure you have the following:
 
-## Prerequisites
+1. **A computer running Windows, macOS, or Linux** with an internet connection (only needed for the initial setup).
+2. **Python 3.9 or newer.** If you do not already have Python:
+   - Windows: download from [python.org/downloads](https://www.python.org/downloads/windows/) and check “Add Python to PATH” during installation.
+   - macOS: download from [python.org/downloads](https://www.python.org/downloads/macos/) and follow the installer prompts.
+   - Linux: install from your package manager (for example, `sudo apt install python3 python3-venv python3-pip`).
+3. **Ollama** installed and running locally. This provides the AI model. Download it from [ollama.com](https://ollama.com/) and follow their installation steps.
+4. *(Optional)* **Tor** if you want web research traffic to go through the Tor network. You can skip this if privacy routing is not needed right away.
 
-- Python 3.9 or newer
-- [Ollama](https://ollama.com/) running locally with the model specified in `config.json`
-- (Optional) A Tor binary if you plan to enable Tor routing for research queries. When enabled, the server ensures the Tor SOCKS proxy is reachable before performing lookups.
+> **Tip:** If you are unsure whether Python or Ollama are already installed, open a terminal (Command Prompt on Windows, Terminal app on macOS, or your Linux terminal) and type `python --version` or `ollama --version`. If the command is not found, install the missing tool.
 
-You can use the provided `venv` directory or create your own virtual environment.
+---
 
-## Installation
+## Downloading the project
+You can obtain the project in two different ways. Choose the option that feels easiest:
 
+### Option A: Download as a ZIP (no Git required)
+1. Visit the project page in your web browser.
+2. Click the green **Code** button, then choose **Download ZIP**.
+3. When the download finishes, unzip the file into a folder you can easily find (for example, `Documents/ChatUnreal`).
+
+### Option B: Clone with Git (for those who already use Git)
 ```bash
-# Clone the repository
- git clone <your-fork-url>
- cd Unreal_Ai
-
-# (Optional) Create and activate a virtual environment
- python -m venv .venv
- source .venv/bin/activate  # On Windows use: .venv\\Scripts\\activate
-
-# Install Python dependencies
- pip install -r requirements.txt  # If you maintain your own requirements file
-# or install the minimal set manually
- pip install flask requests beautifulsoup4
+# Replace <your-folder> with the directory where you want the project to live
+git clone <repository-url> <your-folder>
+cd <your-folder>
 ```
 
-If you plan to rely on Tor, ensure it is installed locally and that you know the absolute path to the executable. On Windows the example path in `config.json` points to the Chocolatey installation of the Tor Browser bundle.
+---
 
-## Configuration
+## Quick start (no coding knowledge required)
+Follow these steps in order. Each command should be run in the project folder you just downloaded or cloned.
 
-All runtime options live in `config.json`:
+1. **Open a terminal in the project folder.**
+   - Windows: open the folder in File Explorer, click the address bar, type `cmd`, and press Enter.
+   - macOS: right-click the folder in Finder and choose **New Terminal at Folder** (or open Terminal and use `cd /path/to/folder`).
+   - Linux: open your terminal application and use `cd /path/to/folder`.
 
-| Key | Description |
-| --- | --- |
-| `model` | The Ollama model name that the server will pass to `http://localhost:11434/api/chat` (for example, `llama3` or `chatunreal`). |
-| `cache_lifetime_hours` | Reserved for future caching behaviour (currently unused but retained for compatibility). |
-| `use_tor` | Boolean flag; when `true`, the server ensures the Tor SOCKS proxy is reachable and proxies research requests through it. |
-| `tor_path` | Absolute path to the Tor executable. Required only if `use_tor` is enabled or if the binary is not discoverable on the system PATH. |
+2. **Create an isolated Python environment (recommended).** This keeps the project’s libraries separate from everything else on your computer.
+   ```bash
+   python -m venv venv
+   ```
+   - Windows: activate it with `venv\Scripts\activate`.
+   - macOS/Linux: activate it with `source venv/bin/activate`.
+   You will know the environment is active when you see `(venv)` at the start of your terminal line.
 
-Update the file to match your environment. For cross-platform setups, consider maintaining separate configuration files (for example `config.windows.json`, `config.linux.json`) and copying the appropriate one before launching the server.
+3. **Install the required Python libraries.**
+   ```bash
+   pip install flask requests beautifulsoup4
+   ```
+   These packages let the server run, perform web lookups, and process the results.
 
-## Running the server
+4. **Check your Ollama model.** Open Ollama and make sure at least one model (for example, `llama3`) is downloaded and ready. Keep the Ollama service running.
 
-1. Ensure your Ollama daemon is running and serving requests on `http://localhost:11434`.
-2. Activate your Python environment.
-3. Launch the Flask server:
+5. **Review the configuration file.** Open `config.json` in a simple text editor (Notepad, TextEdit, or any editor you prefer) and confirm:
+   - `"model"` matches the Ollama model you want to use.
+   - `"use_tor"` is `false` unless you have Tor installed and configured.
+   - `"tor_path"` points to the Tor executable if you plan to enable Tor later.
 
+6. **Start the server.**
    ```bash
    python Chat_Unreal_Server.py
    ```
+   Keep this terminal window open. When it says the server is running, you are ready to chat.
 
-   The application starts on `http://127.0.0.1:4891` by default. The console prints a banner once Flask is ready.
+7. **Open the chat page.** Launch your web browser and go to [http://127.0.0.1:4891](http://127.0.0.1:4891). You should see the Chat Unreal interface. Type a message and press **Send** to begin.
 
-If Tor support is enabled, the server will attempt to start Tor in a background thread during initialisation and wait for the SOCKS proxy to accept connections before continuing. *** Use a VPN ***
+> **Stopping everything:** When you finish, close the browser tab and press `Ctrl+C` in the terminal to stop the server. Deactivate the virtual environment with `deactivate` (or simply close the terminal window).
 
-### Using the chat client
+---
 
-- Navigate to `http://127.0.0.1:4891/` in your browser.
-- Type a message in the input field and press **Send** (or hit **Enter**).
-- The assistant responds using the selected Ollama model and supplements responses with recent conversation context stored in `chat_memory.json`.
-- To trigger a web-assisted answer, include language such as "search for", "find information on", or "lookup" in your prompt.
-
-### API access
-
-If you prefer to integrate the back end with another client, POST JSON payloads directly to `/api/chat`:
-
-```http
-POST /api/chat
-Content-Type: application/json
-
-{ "message": "Explain how Tor integration works." }
+## Understanding the project layout
+```
+.
+├── Chat_Unreal_Server.py   # Python server that powers the chat and optional Tor research
+├── Chat_Unreal.html        # Web page displayed in your browser
+├── static/
+│   ├── style.css           # Visual appearance of the chat page
+│   └── script.js           # Browser-side chat logic
+├── config.json             # User-editable settings (model name, Tor options)
+├── chat_memory.json        # Stores recent conversations
+├── chat_unreal.log         # Activity log for debugging or auditing
+└── run.ps1                 # Windows PowerShell launcher (optional)
 ```
 
-The response envelope contains a single `response` field with the assistant's reply.
+### Key files in plain language
+- **Chat_Unreal_Server.py:** The engine. It listens for chat messages and sends them to Ollama. If Tor is enabled, it routes research queries through Tor.
+- **Chat_Unreal.html:** The front-end page you interact with. It uses the files in `static/` for styling and behaviour.
+- **config.json:** Your main control panel. Change the AI model or toggle privacy features here.
+- **chat_memory.json & chat_unreal.log:** Automatically created files that keep a history of conversations. You can delete them at any time to reset the memory or clear logs.
 
-## Data and logs
+---
 
-- **Conversation memory** – `chat_memory.json` keeps a running list of turns. Clear or delete the file to reset the assistant's memory.
-- **Logs** – `chat_unreal.log` captures timestamps, user prompts, and AI replies. Rotate or archive this file regularly to manage disk usage.
+## Optional: enabling Tor privacy routing
+1. Install Tor (for example, the Tor Browser bundle or the tor expert bundle).
+2. Locate the Tor executable on your system.
+3. Update `config.json`:
+   ```json
+   {
+     "model": "llama3",
+     "cache_lifetime_hours": 0,
+     "use_tor": true,
+     "tor_path": "C:/Path/To/Tor/tor.exe"
+   }
+   ```
+4. Restart the Chat Unreal server. On startup it will launch Tor and wait until the secure connection is ready before processing research requests.
 
-## Development tips
+> **Safety note:** Tor adds privacy but may slow down web lookups. Only enable it if you understand how Tor works and trust the network environment.
 
-- Use `static/script.js` to adjust the front-end behaviour (for example, adding streaming responses or Markdown rendering).
-- Update `static/style.css` to customise branding, colour schemes, or layout.
-- Extend `Chat_Unreal_Server.py` to add authentication, alternative search providers, or richer context injection.
+---
 
-Contributions, issues, and suggestions are welcome. Happy hacking!
+## Troubleshooting checklist
+- **The terminal says a command is not recognized.** Double-check that Python or pip was installed and added to your PATH. Re-open the terminal after installing.
+- **The server starts but the web page will not load.** Make sure you are visiting `http://127.0.0.1:4891` (not `https`). Refresh the page after the server reports it is running.
+- **Responses mention missing models.** Confirm the `model` value in `config.json` matches a model that is already downloaded in Ollama (`ollama list`).
+- **Tor will not start.** Verify the `tor_path` is correct and that your security software allows Tor to run.
 
+If you get stuck, copy the exact error message and search for it online or reach out in the project’s issue tracker with as much detail as possible.
+
+---
+
+## Next steps and customization
+- Personalize the look and feel by editing `static/style.css`.
+- Enhance the chat behaviour or add new endpoints by editing `Chat_Unreal_Server.py`.
+- Integrate with other tools or dashboards by calling the `/api/chat` endpoint from your own applications.
+
+We hope you enjoy exploring Chat Unreal! Feel free to open an issue or submit a pull request with feedback or improvements.
